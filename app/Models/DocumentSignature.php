@@ -24,6 +24,7 @@ class DocumentSignature extends Model
         'signer_ip',
         'signed_at',
         'expires_at',
+        'client_email',
     ];
 
     protected function casts(): array
