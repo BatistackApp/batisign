@@ -21,7 +21,7 @@ class DocumentSuccessfullySigned extends Notification
 
     public function toMail(object $notifiable): MailMessage
     {
-        $filePath = Storage::disk('private')->path($this->document->signed_pdf_path);
+        $filePath = Storage::disk('local')->path($this->document->signed_pdf_path);
 
         return (new MailMessage)
             ->subject('Copie de votre devis signé - '.$this->document->ebp_quote_number)

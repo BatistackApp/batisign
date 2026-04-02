@@ -19,11 +19,11 @@ class PdfStamperService
     public function stampSignature(DocumentSignature $document): string
     {
         // 1. Vérification des prérequis
-        if (! $document->signature_data || ! Storage::disk('private')->exists($document->original_pdf_path)) {
+        if (! $document->signature_data || ! Storage::disk('local')->exists($document->original_pdf_path)) {
             throw new Exception('Données de signature ou PDF original manquants.');
         }
 
-        $originalPath = Storage::disk('private')->path($document->original_pdf_path);
+        $originalPath = Storage::disk('local')->path($document->original_pdf_path);
 
         // 2. Initialisation de FPDI/TCPDF
         $pdf = new Fpdi;
@@ -50,7 +50,7 @@ class PdfStamperService
         $newFilePath = Storage::disk('private')->path($newFileName);
 
         // Assurez-vous que le dossier existe
-        Storage::disk('private')->makeDirectory('quotes/signed');
+        Storage::disk('local')->makeDirectory('quotes/signed');
 
         $pdf->Output($newFilePath, 'F');
 
