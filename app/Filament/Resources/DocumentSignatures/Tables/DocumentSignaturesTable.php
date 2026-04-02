@@ -7,8 +7,6 @@ use App\Models\DocumentSignature;
 use App\Notifications\DocumentSignature\DocumentSentForSignature;
 use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
-use Filament\Actions\BulkActionGroup;
-use Filament\Actions\DeleteBulkAction;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
@@ -52,9 +50,9 @@ class DocumentSignaturesTable
                         ->icon(Phosphor::PaperPlane)
                         ->color('info')
                         ->requiresConfirmation()
-                        ->visible(fn(DocumentSignature $record) => in_array($record->status, [SignatureStatus::PENDING, SignatureStatus::VIEWED]))
+                        ->visible(fn (DocumentSignature $record) => in_array($record->status, [SignatureStatus::PENDING, SignatureStatus::VIEWED]))
                         ->action(function (DocumentSignature $record) {
-                            Notification::route('mail', $record->client->email)
+                            Notification::route('mail', $record->client_email)
                                 ->notify(new DocumentSentForSignature($record));
 
                             $record->update(['status' => SignatureStatus::SENT]);
@@ -68,7 +66,7 @@ class DocumentSignaturesTable
                         ->label('Télécharger')
                         ->icon('heroicon-o-arrow-down-tray')
                         ->color('success')
-                        ->visible(fn(DocumentSignature $record) => $record->status === SignatureStatus::SIGNED)
+                        ->visible(fn (DocumentSignature $record) => $record->status === SignatureStatus::SIGNED)
                         ->action(function (DocumentSignature $record) {
                             return response()->download(Storage::disk('private')->path($record->signed_pdf_path));
                         }),
