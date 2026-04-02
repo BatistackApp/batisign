@@ -12,6 +12,7 @@ return new class extends Migration
         Schema::create('document_signatures', function (Blueprint $table) {
             $table->id();
             $table->uuid('uuid');
+            $table->string('client_email');
             $table->string('ebp_quote_number');
             $table->string('original_pdf_path');
             $table->string('signed_pdf_path')->nullable();

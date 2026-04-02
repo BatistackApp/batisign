@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Enums\SignatureStatus;
+use App\Jobs\DocumentSignature\SealSignedDocumentJob;
 use App\Models\DocumentSignature;
 
 class SignatureWorkflowService
@@ -31,8 +32,7 @@ class SignatureWorkflowService
         ]);
 
         // 3. Déclenchement asynchrone de la génération du PDF scellé
-        // Note: Nous commenterons cette ligne en attendant de créer le Job (Étape 5)
-        // SealSignedDocumentJob::dispatch($document);
+        SealSignedDocumentJob::dispatch($document);
     }
 
     /**
