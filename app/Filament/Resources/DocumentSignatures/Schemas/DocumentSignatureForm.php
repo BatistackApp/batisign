@@ -26,6 +26,11 @@ class DocumentSignatureForm
                             ->email()
                             ->required(),
 
+                        TextInput::make('amount')
+                            ->label('Montant HT')
+                            ->required()
+                            ->suffix('€'),
+
                         FileUpload::make('original_pdf_path')
                             ->label('Document PDF')
                             ->directory('quotes/originals')

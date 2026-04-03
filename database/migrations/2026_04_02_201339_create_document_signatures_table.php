@@ -23,6 +23,7 @@ return new class extends Migration
             $table->timestamp('signed_at')->nullable();
             $table->timestamp('expires_at')->nullable();
             $table->timestamp('reminded_at')->nullable();
+            $table->decimal('amount', 15, 2)->default(0);
             $table->timestamps();
             $table->unique(['uuid']);
             $table->index(['ebp_quote_number']);

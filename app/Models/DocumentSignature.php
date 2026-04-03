@@ -25,6 +25,8 @@ class DocumentSignature extends Model
         'signed_at',
         'expires_at',
         'client_email',
+        'reminded_at',
+        'amount',
     ];
 
     protected function casts(): array
@@ -34,6 +36,8 @@ class DocumentSignature extends Model
             'signed_at' => 'datetime',
             'expires_at' => 'datetime',
             'status' => SignatureStatus::class,
+            'reminded_at' => 'datetime',
+            'amount' => 'decimal:2',
         ];
     }
 
