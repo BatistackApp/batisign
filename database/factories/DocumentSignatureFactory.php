@@ -24,6 +24,7 @@ class DocumentSignatureFactory extends Factory
             'signer_ip' => null,
             'signed_at' => null,
             'expires_at' => now()->addDays(30),
+            'client_email' => fake()->email(),
         ];
     }
 

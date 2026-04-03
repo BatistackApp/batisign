@@ -2,9 +2,11 @@
 
 namespace App\Livewire;
 
+use App\Enums\SignatureStatus;
 use App\Models\DocumentSignature;
 use App\Services\SignatureWorkflowService;
 use Filament\Forms\Components\TextInput;
+use Filament\Notifications\Notification;
 use Filament\Schemas\Concerns\InteractsWithSchemas;
 use Filament\Schemas\Contracts\HasSchemas;
 use Filament\Schemas\Schema;
@@ -56,6 +58,22 @@ class PublicSignaturePortal extends Component implements HasSchemas
     {
         // Validation automatique via Filament
         $validatedData = $this->form->getState();
+
+        if ($this->document->status === SignatureStatus::EXPIRED) {
+            Notification::make()
+                ->danger()
+                ->title('La validité du devis pour signature à expiré, veuillez contacter C2ME au 02 51 38 16 76')
+                ->send();
+
+            return;
+        }
+
+        if ($this->document->status === SignatureStatus::SIGNED) {
+            Notification::make()
+                ->danger()
+                ->title('Ce document a déjà été signé.')
+                ->send();
+        }
 
         // Appel au service métier
         $workflowService->processClientSignature(
