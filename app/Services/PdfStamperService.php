@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\DocumentSignature;
 use Exception;
+use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Storage;
 use setasign\Fpdi\Tcpdf\Fpdi;
 
@@ -25,34 +26,55 @@ class PdfStamperService
 
         $originalPath = Storage::disk('local')->path($document->original_pdf_path);
 
-        // 2. Initialisation de FPDI/TCPDF
-        $pdf = new Fpdi;
-        $pageCount = $pdf->setSourceFile($originalPath);
+        $gsCmd = config('services.ghostscript.cmd');
+        $tempUncompressedPath = storage_path('app/private/temp_uncompressed_'.$document->uuid.'.pdf');
+
+        $process = Process::run([
+            $gsCmd,
+            '-sDEVICE=pdfwrite',
+            '-dCompatibilityLevel=1.4', // Force la version lisible par FPDI
+            '-dNOPAUSE',
+            '-dQUIET',
+            '-dBATCH',
+            '-sOutputFile='.$tempUncompressedPath,
+            $originalPath,
+        ]);
+
+        if (! $process->successful()) {
+            throw new Exception('Échec de la décompression du PDF par Ghostscript : '.$process->errorOutput());
+        }
+
+        // 2. Initialisation de FPDI/TCPDF en utilisant le fichier décompressé
+        $pdf = new Fpdi();
+
+        // On source le fichier temporaire au lieu de l'original
+        $pageCount = $pdf->setSourceFile($tempUncompressedPath);
 
         // 3. Importation et copie de toutes les pages
         for ($pageNo = 1; $pageNo <= $pageCount; $pageNo++) {
             $templateId = $pdf->importPage($pageNo);
             $size = $pdf->getTemplateSize($templateId);
 
-            // Conserver l'orientation originale
             $orientation = $size['width'] > $size['height'] ? 'L' : 'P';
             $pdf->AddPage($orientation, [$size['width'], $size['height']]);
             $pdf->useTemplate($templateId);
 
-            // 4. Si c'est la dernière page, on incruste la signature
             if ($pageNo === $pageCount) {
                 $this->applySignatureToPage($pdf, $document);
             }
         }
 
-        // 5. Sauvegarde du nouveau fichier
-        $newFileName = 'quotes/signed/signed_'.$document->uuid.'.pdf';
-        $newFilePath = Storage::disk('private')->path($newFileName);
+        $newFileName = 'quotes/signed/signed_' . $document->uuid . '.pdf';
+        $newFilePath = Storage::disk('local')->path($newFileName);
 
-        // Assurez-vous que le dossier existe
         Storage::disk('local')->makeDirectory('quotes/signed');
-
         $pdf->Output($newFilePath, 'F');
+
+        // --- NOUVEAU CODE : NETTOYAGE ---
+        if (file_exists($tempUncompressedPath)) {
+            unlink($tempUncompressedPath);
+        }
+        // ---------------------------------
 
         return $newFileName;
     }

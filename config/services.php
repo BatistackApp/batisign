@@ -35,4 +35,8 @@ return [
         ],
     ],
 
+    'ghostscript' => [
+        'cmd' => env('GHOSTSCRIPT_CMD', 'gs'),
+    ],
+
 ];

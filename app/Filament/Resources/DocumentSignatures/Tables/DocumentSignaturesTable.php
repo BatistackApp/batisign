@@ -68,7 +68,7 @@ class DocumentSignaturesTable
                         ->color('success')
                         ->visible(fn (DocumentSignature $record) => $record->status === SignatureStatus::SIGNED)
                         ->action(function (DocumentSignature $record) {
-                            return response()->download(Storage::disk('private')->path($record->signed_pdf_path));
+                            return response()->download(Storage::disk('local')->path($record->signed_pdf_path));
                         }),
 
                     Action::make('copy_link')
