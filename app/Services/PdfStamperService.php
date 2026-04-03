@@ -7,9 +7,11 @@ use Exception;
 use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Storage;
 use setasign\Fpdi\Tcpdf\Fpdi;
+use Smalot\PdfParser\Parser;
 
 class PdfStamperService
 {
+    protected string $searchKeyword = 'signature précédée de la mention :';
     /**
      * Appose la signature sur le PDF et retourne le chemin du nouveau fichier.
      *
@@ -25,6 +27,7 @@ class PdfStamperService
         }
 
         $originalPath = Storage::disk('local')->path($document->original_pdf_path);
+        $coords = $this->findCoordinates($originalPath);
 
         $gsCmd = config('services.ghostscript.cmd');
         $tempUncompressedPath = storage_path('app/private/temp_uncompressed_'.$document->uuid.'.pdf');
@@ -45,7 +48,7 @@ class PdfStamperService
         }
 
         // 2. Initialisation de FPDI/TCPDF en utilisant le fichier décompressé
-        $pdf = new Fpdi();
+        $pdf = new Fpdi;
 
         // On source le fichier temporaire au lieu de l'original
         $pageCount = $pdf->setSourceFile($tempUncompressedPath);
@@ -59,12 +62,17 @@ class PdfStamperService
             $pdf->AddPage($orientation, [$size['width'], $size['height']]);
             $pdf->useTemplate($templateId);
 
-            if ($pageNo === $pageCount) {
-                $this->applySignatureToPage($pdf, $document);
+            if ($pageNo === $coords['page']) {
+                $this->applySignatureToPage(
+                    $pdf,
+                    $document,
+                    $coords['x'],
+                    $coords['y']
+                );
             }
         }
 
-        $newFileName = 'quotes/signed/signed_' . $document->uuid . '.pdf';
+        $newFileName = 'quotes/signed/signed_'.$document->uuid.'.pdf';
         $newFilePath = Storage::disk('local')->path($newFileName);
 
         Storage::disk('local')->makeDirectory('quotes/signed');
@@ -80,9 +88,62 @@ class PdfStamperService
     }
 
     /**
+     * Analyse le PDF pour trouver le mot-clé et retourner les coordonnées X, Y et la Page.
+     *
+     * @throws Exception
+     */
+    protected function findCoordinates(string $pdfPath): array
+    {
+        $parser = new Parser;
+        $pdf = $parser->parseFile($pdfPath);
+        $pages = $pdf->getPages();
+
+        // Paramètres par défaut (fallback en bas à droite de la dernière page)
+        $result = [
+            'x' => 120,
+            'y' => 250,
+            'page' => count($pages),
+        ];
+
+        foreach ($pages as $pageNumber => $page) {
+            // Extraction des données de texte avec positions
+            $data = $page->getDataTm();
+
+            foreach ($data as $item) {
+                $text = $item[1];
+                $position = $item[0]; // [1, 0, 0, 1, X, Y]
+
+                if (str_contains(strtolower($text), strtolower($this->searchKeyword))) {
+                    // Les coordonnées PDF (0,0) sont en bas à gauche.
+                    // FPDI utilise souvent le haut à gauche, un ajustement peut être nécessaire.
+                    return [
+                        'x' => $position[4],
+                        'y' => $this->calculateY($page, $position[5]),
+                        'page' => $pageNumber + 1,
+                    ];
+                }
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * Convertit la coordonnée Y (bas vers haut) en coordonnée utilisable (haut vers bas).
+     */
+    protected function calculateY($page, $pdfY): float
+    {
+        $details = $page->getDetails();
+        $height = $details['MediaBox'][3] ?? 842; // Taille A4 par défaut si non trouvé
+
+        // On remonte un peu au-dessus du texte (ex: -30) pour ne pas écraser le mot-clé
+        return ($height - $pdfY) - 30;
+    }
+
+    /**
      * Logique de positionnement de l'image et du texte légal sur la page.
      */
-    private function applySignatureToPage(Fpdi $pdf, DocumentSignature $document): void
+    private function applySignatureToPage(Fpdi $pdf, DocumentSignature $document, $x, $y): void
     {
         // Nettoyage du Base64 pour TCPDF
         $imgData = base64_decode(preg_replace('#^data:image/\w+;base64,#i', '', $document->signature_data));
@@ -94,8 +155,6 @@ class PdfStamperService
         file_put_contents($tmpImgPath, $imgData);
 
         // Positionnement (Exemple: en bas à droite de la page)
-        $x = 130;
-        $y = 230;
         $width = 60; // Largeur de la signature
 
         // Ajout de l'image
