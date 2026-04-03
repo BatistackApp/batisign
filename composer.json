@@ -16,6 +16,7 @@
         "laravel/tinker": "^3.0",
         "livewire/flux": "^2.12.0",
         "livewire/livewire": "^4.1",
+        "saade/filament-autograph": "^4.1",
         "setasign/fpdi": "*",
         "tecnickcom/tcpdf": "*",
         "tonegabes/filament-phosphor-icons": "*"
