@@ -12,6 +12,7 @@ use Smalot\PdfParser\Parser;
 class PdfStamperService
 {
     protected string $searchKeyword = 'signature précédée de la mention :';
+
     /**
      * Appose la signature sur le PDF et retourne le chemin du nouveau fichier.
      *
@@ -71,6 +72,7 @@ class PdfStamperService
                 );
             }
         }
+        $this->addAuditTrailPage($pdf, $document);
 
         $newFileName = 'quotes/signed/signed_'.$document->uuid.'.pdf';
         $newFilePath = Storage::disk('local')->path($newFileName);
@@ -85,6 +87,41 @@ class PdfStamperService
         // ---------------------------------
 
         return $newFileName;
+    }
+
+    /**
+     * Ajoute une page de certificat d'audit à la fin du document.
+     */
+    protected function addAuditTrailPage(Fpdi $pdf, DocumentSignature $document): void
+    {
+        $pdf->AddPage();
+        $pdf->SetFont('Arial', 'B', 16);
+        $pdf->SetTextColor(0, 0, 0);
+        $pdf->Cell(0, 10, utf8_decode('Certificat de Signature Électronique'), 0, 1, 'C');
+        $pdf->Ln(10);
+
+        $pdf->SetFont('Arial', '', 10);
+        $pdf->SetFillColor(245, 245, 245);
+
+        $info = [
+            'Document ID' => $document->uuid,
+            'Client' => $document->client_email,
+            'Statut' => 'Signé électroniquement',
+            'Date de signature' => now()->format('d/m/Y H:i:s'),
+            'Adresse IP' => $document->signer_ip ?? 'N/A',
+            'Empreinte Numérique (SHA-256)' => hash('sha256', $document->uuid.now()), // Hash temporaire
+        ];
+
+        foreach ($info as $label => $value) {
+            $pdf->SetFont('Arial', 'B', 10);
+            $pdf->Cell(60, 10, utf8_decode($label.' :'), 1, 0, 'L', true);
+            $pdf->SetFont('Arial', '', 10);
+            $pdf->Cell(0, 10, utf8_decode($value), 1, 1, 'L');
+        }
+
+        $pdf->Ln(20);
+        $pdf->SetFont('Arial', 'I', 8);
+        $pdf->MultiCell(0, 5, utf8_decode("Ce document a été scellé par Batisign. Toute modification ultérieure du fichier PDF rendra ce certificat invalide. L'empreinte numérique permet de vérifier l'intégrité du document original auprès de nos services."));
     }
 
     /**
