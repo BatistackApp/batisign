@@ -18,6 +18,7 @@
         "livewire/livewire": "^4.1",
         "saade/filament-autograph": "^4.1",
         "setasign/fpdi": "*",
+        "smalot/pdfparser": "^2.12",
         "tecnickcom/tcpdf": "*",
         "tonegabes/filament-phosphor-icons": "*"
     },
