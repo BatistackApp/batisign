@@ -6,6 +6,7 @@ use App\Livewire\PublicSignaturePortal;
 use App\Models\DocumentSignature;
 use Filament\Notifications\Notification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Psr\Log\LoggerInterface;
 
 uses(RefreshDatabase::class);
 
@@ -88,4 +89,29 @@ test('une signature valide change le statut et déclenche le scellement PDF (moc
     Queue::assertPushed(SealSignedDocumentJob::class, function ($job) use ($document) {
         return $job->document->id === $document->id;
     });
+});
+
+test('le job de scellement envoie une alerte critique sur slack en cas d\'échec', function () {
+    // 1. Arrange : Création d'un document et d'une fausse exception
+    $document = DocumentSignature::factory()->create();
+    $exception = new Exception('Simulation erreur Ghostscript ou FPDI');
+    $job = new SealSignedDocumentJob($document);
+
+    // 2. Mock : On intercepte l'appel au log pour vérifier qu'il est bien déclenché
+    $loggerMock = Mockery::mock(LoggerInterface::class);
+
+    // On s'attend à ce que la méthode critical() soit appelée une fois avec un tableau de contexte
+    $loggerMock->shouldReceive('critical')
+        ->once()
+        ->with('🚨 Échec critique du scellement PDF', Mockery::type('array'));
+
+    // On s'attend à ce que le channel "slack_alerts" soit utilisé
+    Log::shouldReceive('channel')
+        ->with('slack_alerts')
+        ->andReturn($loggerMock);
+
+    // 3. Act : On déclenche manuellement la méthode failed() du Job
+    $job->failed($exception);
+
+    // 4. Assert : géré automatiquement par Mockery à la fin du test
 });

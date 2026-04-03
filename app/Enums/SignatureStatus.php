@@ -14,6 +14,7 @@ enum SignatureStatus: string implements HasColor, HasLabel
     case SIGNED = 'signed';
     case REJECTED = 'rejected';
     case EXPIRED = 'expired';
+    case ERROR = 'error';
 
     public function getColor(): string|array|null
     {
@@ -22,7 +23,7 @@ enum SignatureStatus: string implements HasColor, HasLabel
             self::SENT => 'info',
             self::VIEWED => 'warning',
             self::SIGNED => 'success',
-            self::REJECTED, self::EXPIRED => 'danger',
+            self::REJECTED, self::EXPIRED, self::ERROR => 'danger',
         };
     }
 
@@ -35,6 +36,7 @@ enum SignatureStatus: string implements HasColor, HasLabel
             self::SIGNED => 'Signé',
             self::REJECTED => 'Refusé',
             self::EXPIRED => 'Expiré',
+            self::ERROR => 'En Erreur',
         };
     }
 }

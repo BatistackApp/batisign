@@ -127,6 +127,15 @@ return [
             'path' => storage_path('logs/laravel.log'),
         ],
 
+        'slack_alerts' => [
+            'driver' => 'slack',
+            'url' => env('LOG_SLACK_WEBHOOK_URL'), // Le webhook URL fourni par Slack
+            'username' => 'Batisign Alert',
+            'emoji' => ':rotating_light:',
+            'level' => env('LOG_LEVEL', 'critical'), // On log uniquement les erreurs critiques ici
+            'replace_placeholders' => true,
+        ],
+
     ],
 
 ];
