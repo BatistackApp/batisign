@@ -22,6 +22,7 @@ return new class extends Migration
             $table->ipAddress('signer_ip')->nullable();
             $table->timestamp('signed_at')->nullable();
             $table->timestamp('expires_at')->nullable();
+            $table->timestamp('reminded_at')->nullable();
             $table->timestamps();
             $table->unique(['uuid']);
             $table->index(['ebp_quote_number']);
