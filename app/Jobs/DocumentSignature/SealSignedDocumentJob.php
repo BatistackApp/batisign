@@ -28,7 +28,10 @@ class SealSignedDocumentJob implements ShouldQueue
     {
         try {
             // 1. Appose la signature sur le PDF
-            $newPdfPath = $stamper->stampSignature($this->document);
+            $newPdfPath = $stamper->stampSignature($this->document, [
+                'ip' => request()->ip(),
+                'user_agent' => request()->userAgent(),
+            ]);
 
             // 2. Met à jour la base de données
             $this->document->update([

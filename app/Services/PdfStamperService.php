@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Enums\SignatureStatus;
 use App\Models\DocumentSignature;
 use Exception;
 use Illuminate\Support\Facades\Process;
@@ -11,16 +12,16 @@ use Smalot\PdfParser\Parser;
 
 class PdfStamperService
 {
+    /**
+     * Mot-clé recherché dans le PDF pour le positionnement.
+     */
     protected string $searchKeyword = 'signature précédée de la mention :';
 
     /**
-     * Appose la signature sur le PDF et retourne le chemin du nouveau fichier.
-     *
-     * @return string Le chemin vers le PDF signé
-     *
+     * Appose la signature, ajoute un dossier de preuve et sécurise l'intégrité.
      * @throws Exception
      */
-    public function stampSignature(DocumentSignature $document): string
+    public function stampSignature(DocumentSignature $document, array $metadata = []): string
     {
         // 1. Vérification des prérequis
         if (! $document->signature_data || ! Storage::disk('local')->exists($document->original_pdf_path)) {
@@ -28,135 +29,129 @@ class PdfStamperService
         }
 
         $originalPath = Storage::disk('local')->path($document->original_pdf_path);
-        $coords = $this->findCoordinates($originalPath);
-
-        $gsCmd = config('services.ghostscript.cmd');
         $tempUncompressedPath = storage_path('app/private/temp_uncompressed_'.$document->uuid.'.pdf');
+
+        // On s'assure que le dossier de destination existe
+        Storage::disk('local')->makeDirectory('signed');
+
+        try {
+            // 2. Conversion/Décompression via Ghostscript
+            $this->decompressPdf($originalPath, $tempUncompressedPath);
+
+            // 3. Analyse pour trouver les coordonnées dynamiques
+            $coords = $this->findCoordinates($tempUncompressedPath);
+
+            // 4. Initialisation du scellement avec FPDI (Version TCPDF)
+            // On démarre un tampon pour capturer toute sortie accidentelle
+            ob_start();
+
+            $pdf = new Fpdi();
+
+            // On désactive les en-têtes et pieds de page par défaut de TCPDF
+            $pdf->setPrintHeader(false);
+            $pdf->setPrintFooter(false);
+
+            $pageCount = $pdf->setSourceFile($tempUncompressedPath);
+
+            for ($pageNo = 1; $pageNo <= $pageCount; $pageNo++) {
+                $templateId = $pdf->importPage($pageNo);
+                $size = $pdf->getTemplateSize($templateId);
+
+                // Détection de l'orientation
+                $orientation = $size['width'] > $size['height'] ? 'L' : 'P';
+
+                $pdf->AddPage($orientation, [$size['width'], $size['height']]);
+                $pdf->useTemplate($templateId);
+
+                if ($pageNo === $coords['page']) {
+                    $this->applySignatureToPage($pdf, $document, $coords['x'], $coords['y'], $metadata);
+                }
+            }
+
+            // 5. Ajout de la page "Dossier de Preuve"
+            $this->addAuditTrailPage($pdf, $document, $metadata);
+
+            // 6. Sortie sécurisée pour TCPDF
+            // Pour TCPDF, la signature est Output($name, $dest).
+            // En mettant une chaîne vide en nom et 'S' en destination, on force le retour en STRING.
+            $content = $pdf->Output('', 'S');
+
+            // Nettoyage du tampon de sortie
+            if (ob_get_length()) {
+                ob_end_clean();
+            }
+
+            if (empty($content)) {
+                throw new Exception('Le contenu du PDF généré est vide (Erreur TCPDF).');
+            }
+
+            $signedPath = 'signed/'.$document->uuid.'.pdf';
+            Storage::disk('local')->put($signedPath, $content);
+
+            // 7. Mise à jour de la base de données
+            $document->update([
+                'status' => SignatureStatus::SIGNED,
+                'signed_at' => now(),
+                'pdf_hash' => hash('sha256', $content),
+            ]);
+
+            return $signedPath;
+
+        } catch (Exception $e) {
+            if (ob_get_length()) {
+                ob_end_clean();
+            }
+            throw $e;
+        } finally {
+            // Nettoyage rigoureux du fichier temporaire
+            if (file_exists($tempUncompressedPath)) {
+                @unlink($tempUncompressedPath);
+            }
+        }
+    }
+
+    /**
+     * Utilise Ghostscript pour rendre le PDF compatible (Version 1.4).
+     */
+    private function decompressPdf(string $source, string $destination): void
+    {
+        $gsCmd = config('services.ghostscript.cmd', 'gs');
 
         $process = Process::run([
             $gsCmd,
             '-sDEVICE=pdfwrite',
-            '-dCompatibilityLevel=1.4', // Force la version lisible par FPDI
+            '-dCompatibilityLevel=1.4',
             '-dNOPAUSE',
             '-dQUIET',
             '-dBATCH',
-            '-sOutputFile='.$tempUncompressedPath,
-            $originalPath,
+            '-sOutputFile='.$destination,
+            $source,
         ]);
 
-        if (! $process->successful()) {
-            throw new Exception('Échec de la décompression du PDF par Ghostscript : '.$process->errorOutput());
+        if ($process->failed()) {
+            throw new Exception('Erreur Ghostscript : '.$process->errorOutput());
         }
-
-        // 2. Initialisation de FPDI/TCPDF en utilisant le fichier décompressé
-        $pdf = new Fpdi;
-
-        // On source le fichier temporaire au lieu de l'original
-        $pageCount = $pdf->setSourceFile($tempUncompressedPath);
-
-        // 3. Importation et copie de toutes les pages
-        for ($pageNo = 1; $pageNo <= $pageCount; $pageNo++) {
-            $templateId = $pdf->importPage($pageNo);
-            $size = $pdf->getTemplateSize($templateId);
-
-            $orientation = $size['width'] > $size['height'] ? 'L' : 'P';
-            $pdf->AddPage($orientation, [$size['width'], $size['height']]);
-            $pdf->useTemplate($templateId);
-
-            if ($pageNo === $coords['page']) {
-                $this->applySignatureToPage(
-                    $pdf,
-                    $document,
-                    $coords['x'],
-                    $coords['y']
-                );
-            }
-        }
-        $this->addAuditTrailPage($pdf, $document);
-
-        $newFileName = 'quotes/signed/signed_'.$document->uuid.'.pdf';
-        $newFilePath = Storage::disk('local')->path($newFileName);
-
-        Storage::disk('local')->makeDirectory('quotes/signed');
-        $pdf->Output($newFilePath, 'F');
-
-        // --- NOUVEAU CODE : NETTOYAGE ---
-        if (file_exists($tempUncompressedPath)) {
-            unlink($tempUncompressedPath);
-        }
-        // ---------------------------------
-
-        return $newFileName;
     }
 
     /**
-     * Ajoute une page de certificat d'audit à la fin du document.
+     * Analyse le PDF pour localiser le mot-clé.
      */
-    protected function addAuditTrailPage(Fpdi $pdf, DocumentSignature $document): void
-    {
-        $pdf->AddPage();
-        $pdf->SetFont('Arial', 'B', 16);
-        $pdf->SetTextColor(0, 0, 0);
-        $pdf->Cell(0, 10, utf8_decode('Certificat de Signature Électronique'), 0, 1, 'C');
-        $pdf->Ln(10);
-
-        $pdf->SetFont('Arial', '', 10);
-        $pdf->SetFillColor(245, 245, 245);
-
-        $info = [
-            'Document ID' => $document->uuid,
-            'Client' => $document->client_email,
-            'Statut' => 'Signé électroniquement',
-            'Date de signature' => now()->format('d/m/Y H:i:s'),
-            'Adresse IP' => $document->signer_ip ?? 'N/A',
-            'Empreinte Numérique (SHA-256)' => hash('sha256', $document->uuid.now()), // Hash temporaire
-        ];
-
-        foreach ($info as $label => $value) {
-            $pdf->SetFont('Arial', 'B', 10);
-            $pdf->Cell(60, 10, utf8_decode($label.' :'), 1, 0, 'L', true);
-            $pdf->SetFont('Arial', '', 10);
-            $pdf->Cell(0, 10, utf8_decode($value), 1, 1, 'L');
-        }
-
-        $pdf->Ln(20);
-        $pdf->SetFont('Arial', 'I', 8);
-        $pdf->MultiCell(0, 5, utf8_decode("Ce document a été scellé par Batisign. Toute modification ultérieure du fichier PDF rendra ce certificat invalide. L'empreinte numérique permet de vérifier l'intégrité du document original auprès de nos services."));
-    }
-
-    /**
-     * Analyse le PDF pour trouver le mot-clé et retourner les coordonnées X, Y et la Page.
-     *
-     * @throws Exception
-     */
-    protected function findCoordinates(string $pdfPath): array
+    private function findCoordinates(string $pdfPath): array
     {
         $parser = new Parser;
         $pdf = $parser->parseFile($pdfPath);
         $pages = $pdf->getPages();
 
-        // Paramètres par défaut (fallback en bas à droite de la dernière page)
-        $result = [
-            'x' => 120,
-            'y' => 250,
-            'page' => count($pages),
-        ];
+        $result = ['x' => 120, 'y' => 200, 'page' => count($pages)];
 
-        foreach ($pages as $pageNumber => $page) {
-            // Extraction des données de texte avec positions
-            $data = $page->getDataTm();
-
-            foreach ($data as $item) {
-                $text = $item[1];
-                $position = $item[0]; // [1, 0, 0, 1, X, Y]
-
-                if (str_contains(strtolower($text), strtolower($this->searchKeyword))) {
-                    // Les coordonnées PDF (0,0) sont en bas à gauche.
-                    // FPDI utilise souvent le haut à gauche, un ajustement peut être nécessaire.
+        foreach ($pages as $index => $page) {
+            $textData = $page->getDataTm();
+            foreach ($textData as $item) {
+                if (str_contains(strtolower($item[1]), strtolower($this->searchKeyword))) {
                     return [
-                        'x' => $position[4],
-                        'y' => $this->calculateY($page, $position[5]),
-                        'page' => $pageNumber + 1,
+                        'x' => $item[0][4],
+                        'y' => $this->calculateY($page, $item[0][5]),
+                        'page' => $index + 1,
                     ];
                 }
             }
@@ -166,49 +161,80 @@ class PdfStamperService
     }
 
     /**
-     * Convertit la coordonnée Y (bas vers haut) en coordonnée utilisable (haut vers bas).
+     * Appose l'image de signature.
      */
-    protected function calculateY($page, $pdfY): float
+    private function applySignatureToPage(Fpdi $pdf, DocumentSignature $document, $x, $y, array $metadata): void
     {
-        $details = $page->getDetails();
-        $height = $details['MediaBox'][3] ?? 842; // Taille A4 par défaut si non trouvé
+        $imgData = base64_decode(preg_replace('#^data:image/\w+;base64,#i', '', $document->signature_data));
 
-        // On remonte un peu au-dessus du texte (ex: -30) pour ne pas écraser le mot-clé
-        return ($height - $pdfY) - 30;
+        $tmpFile = tempnam(sys_get_temp_dir(), 'sig');
+        file_put_contents($tmpFile, $imgData);
+
+        try {
+            // Dans TCPDF, Image($file, $x, $y, $w, $h, $type, $link, $align, $resize, $dpi, $palign, $ismask, $imgmask, $border, $fitbox, $hidden, $fitonpage)
+            $pdf->Image($tmpFile, $x, $y, 50);
+
+            $pdf->SetFont('helvetica', '', 7);
+            $pdf->SetTextColor(120, 120, 120);
+            $pdf->SetXY($x, $y + 15);
+
+            $text = sprintf(
+                "Signe par : %s\nLe : %s\nIP : %s",
+                utf8_decode($document->signer_name ?? $document->client_name),
+                now()->format('d/m/Y H:i'),
+                $metadata['ip'] ?? 'N/A'
+            );
+            $pdf->MultiCell(50, 3, $text, 0, 'L');
+        } finally {
+            if (file_exists($tmpFile)) {
+                @unlink($tmpFile);
+            }
+        }
     }
 
     /**
-     * Logique de positionnement de l'image et du texte légal sur la page.
+     * Ajoute le certificat d'audit final.
      */
-    private function applySignatureToPage(Fpdi $pdf, DocumentSignature $document, $x, $y): void
+    private function addAuditTrailPage(Fpdi $pdf, DocumentSignature $document, array $metadata): void
     {
-        // Nettoyage du Base64 pour TCPDF
-        $imgData = base64_decode(preg_replace('#^data:image/\w+;base64,#i', '', $document->signature_data));
+        $pdf->AddPage('P', 'A4');
+        $pdf->SetFont('helvetica', 'B', 16);
+        $pdf->SetTextColor(0, 0, 0);
+        $pdf->Cell(0, 15, utf8_decode('Certificat de Signature Électronique'), 0, 1, 'C');
+        $pdf->Ln(5);
 
-        // TCPDF a besoin d'un fichier physique pour l'image (astuce: fichier temporaire)
-        $tmpImg = tmpfile();
-        $tmpImgMeta = stream_get_meta_data($tmpImg);
-        $tmpImgPath = $tmpImgMeta['uri'];
-        file_put_contents($tmpImgPath, $imgData);
+        $pdf->SetFont('helvetica', '', 10);
+        $pdf->MultiCell(0, 5, utf8_decode("Ce document est certifié par Batisign. Il contient les informations de traçabilité garantissant l'intégrité de la signature et du document original."));
+        $pdf->Ln(10);
 
-        // Positionnement (Exemple: en bas à droite de la page)
-        $width = 60; // Largeur de la signature
+        $pdf->SetFillColor(245, 245, 245);
+        $data = [
+            'Reference Document' => $document->uuid,
+            'Client / Signataire' => $document->signer_name ?? $document->client_name,
+            'Horodatage Signature' => now()->format('d/m/Y H:i:s').' UTC',
+            'Adresse IP' => $metadata['ip'] ?? 'Inconnue',
+            'Navigateur' => substr($metadata['user_agent'] ?? 'Inconnu', 0, 80),
+            'Empreinte (SHA-256)' => hash('sha256', $document->uuid.$document->signed_at),
+        ];
 
-        // Ajout de l'image
-        $pdf->Image($tmpImgPath, $x, $y, $width);
+        foreach ($data as $label => $value) {
+            $pdf->SetFont('helvetica', 'B', 9);
+            $pdf->Cell(55, 8, utf8_decode($label), 1, 0, 'L', true);
+            $pdf->SetFont('helvetica', '', 9);
+            $pdf->Cell(0, 8, utf8_decode($value), 1, 1, 'L');
+        }
 
-        // Ajout du texte de traçabilité légale en dessous
-        $pdf->SetFont('helvetica', '', 8);
-        $pdf->SetTextColor(100, 100, 100);
-        $legalText = sprintf(
-            "Signé numériquement par : %s\nLe : %s\nIP : %s",
-            $document->signer_name,
-            $document->signed_at->format('d/m/Y à H:i:s'),
-            $document->signer_ip
-        );
-        $pdf->SetXY($x, $y + 25); // Juste sous l'image
-        $pdf->MultiCell($width + 10, 5, $legalText, 0, 'L');
+        $pdf->Ln(15);
+        $pdf->SetFont('helvetica', 'I', 8);
+        $pdf->SetTextColor(150, 150, 150);
+        $pdf->MultiCell(0, 4, utf8_decode("L'empreinte numérique SHA-256 stockée dans nos registres permet de vérifier qu'aucune modification n'a été apportée au fichier après sa signature."));
+    }
 
-        fclose($tmpImg); // Supprime le fichier temporaire
+    private function calculateY($page, $pdfY): float
+    {
+        $details = $page->getDetails();
+        $height = $details['MediaBox'][3] ?? 842;
+
+        return ($height - $pdfY) - 25;
     }
 }

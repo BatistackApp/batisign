@@ -27,6 +27,7 @@ class DocumentSignature extends Model
         'client_email',
         'reminded_at',
         'amount',
+        'pdf_hash',
     ];
 
     protected function casts(): array
