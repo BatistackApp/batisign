@@ -25,6 +25,9 @@ php artisan migrate --force
 php artisan config:cache
 php artisan route:cache
 php artisan view:cache
+php artisan filament:optimize
+php artisan filament:optimize-clear
+php artisan optimize
 
 /www/server/panel/pyenv/bin/supervisorctl restart sign_worker:sign_worker_00
 
