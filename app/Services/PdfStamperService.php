@@ -19,6 +19,7 @@ class PdfStamperService
 
     /**
      * Appose la signature, ajoute un dossier de preuve et sécurise l'intégrité.
+     *
      * @throws Exception
      */
     public function stampSignature(DocumentSignature $document, array $metadata = []): string
@@ -45,7 +46,7 @@ class PdfStamperService
             // On démarre un tampon pour capturer toute sortie accidentelle
             ob_start();
 
-            $pdf = new Fpdi();
+            $pdf = new Fpdi;
 
             // On désactive les en-têtes et pieds de page par défaut de TCPDF
             $pdf->setPrintHeader(false);
@@ -180,7 +181,7 @@ class PdfStamperService
 
             $text = sprintf(
                 "Signe par : %s\nLe : %s\nIP : %s",
-                utf8_decode($document->signer_name ?? $document->client_name),
+                utf8_decode($document->signer_name ?? $document->client_email),
                 now()->format('d/m/Y H:i'),
                 $metadata['ip'] ?? 'N/A'
             );
@@ -210,7 +211,7 @@ class PdfStamperService
         $pdf->SetFillColor(245, 245, 245);
         $data = [
             'Reference Document' => $document->uuid,
-            'Client / Signataire' => $document->signer_name ?? $document->client_name,
+            'Client / Signataire' => $document->signer_name ?? $document->client_email,
             'Horodatage Signature' => now()->format('d/m/Y H:i:s').' UTC',
             'Adresse IP' => $metadata['ip'] ?? 'Inconnue',
             'Navigateur' => substr($metadata['user_agent'] ?? 'Inconnu', 0, 80),

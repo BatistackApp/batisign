@@ -52,8 +52,6 @@ class DocumentSignatureResource extends Resource
         return [
             'index' => ListDocumentSignatures::route('/'),
             'create' => CreateDocumentSignature::route('/create'),
-            'view' => ViewDocumentSignature::route('/{record}'),
-            'edit' => EditDocumentSignature::route('/{record}/edit'),
         ];
     }
 }
