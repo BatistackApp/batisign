@@ -3,7 +3,7 @@
 namespace App\Filament\Widgets;
 
 use App\Enums\SignatureStatus;
-use App\Models\DocumentSIgnature;
+use App\Models\DocumentSignature;
 use Filament\Actions\Action;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
@@ -22,7 +22,7 @@ class PendingSignaturesTable extends TableWidget
         return $table
             ->query(fn (): Builder => // On sélectionne uniquement les devis en attente,
                 // triés du plus ancien au plus récent.
-            DocumentSIgnature::query()
+            DocumentSignature::query()
                 ->where('status', SignatureStatus::SENT)
                 ->orderBy('created_at', 'asc'))
             ->heading('Devis en attente de signature (Les plus anciens)')
@@ -55,7 +55,7 @@ class PendingSignaturesTable extends TableWidget
                     ->label('Voir le devis')
                     ->icon('heroicon-m-eye')
                     // Remplacez 'DocumentSignatureResource' par le nom exact de votre ressource
-                    ->url(fn (DocumentSIgnature $record): string => route('filament.admin.resources.document-signatures.view', $record)),
+                    ->url(fn (DocumentSignature $record): string => route('filament.admin.resources.document-signatures.view', $record)),
             ]);
     }
 }
